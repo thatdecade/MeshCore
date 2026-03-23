@@ -25,7 +25,19 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
 
 #ifdef DISPLAY_CLASS
   DISPLAY_CLASS display;
-  MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+
+  #if UI_HAS_JOYSTICK
+    #ifndef PIN_NAV_ENTER
+      #define PIN_NAV_ENTER PIN_USER_BTN
+    #endif
+
+    MomentaryButton user_btn(PIN_NAV_ENTER, 1000, true, true, false);
+    MomentaryButton joystick_left(JOYSTICK_LEFT, 1000, true, true, false);
+    MomentaryButton joystick_right(JOYSTICK_RIGHT, 1000, true, true, false);
+    MomentaryButton back_btn(PIN_BACK_BTN, 1000, true, false, true);
+  #else
+    MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+  #endif
 #endif
 
 bool radio_init() {
