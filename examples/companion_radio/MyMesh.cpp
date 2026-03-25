@@ -101,6 +101,10 @@
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
 #define LAZY_CONTACTS_WRITE_DELAY       5000
+#define AUTO_ADVERT_REPLY_RATE_LIMIT_MILLIS 60000UL
+#define AUTO_ADVERT_REPLY_ECHO_SUPPRESSION_MILLIS 3000UL
+#define AUTO_ADVERT_REPLY_DELAY_MIN_MILLIS 150UL
+#define AUTO_ADVERT_REPLY_DELAY_MAX_MILLIS 900UL
 
 #define PUBLIC_GROUP_PSK                "izOH6cXN6mrJ5e26oRXNcg=="
 
@@ -327,6 +331,75 @@ uint8_t MyMesh::getAutoAddMaxHops() const {
   return _prefs.autoadd_max_hops;
 }
 
+bool MyMesh::isAutoAdvertReplyEnabled() const {
+  return _prefs.auto_advert_reply_on_rx != 0;
+}
+
+bool MyMesh::shouldAutoReplyToAdvert(const ContactInfo &contact, bool is_newly_seen) const {
+  if (!isAutoAdvertReplyEnabled()) {
+    return false;
+  }
+  if (!is_newly_seen) {
+    return false;
+  }
+  if (contact.id.matches(self_id)) {
+    return false;
+  }
+  if (isAutoAdvertReplyRateLimited()) {
+    return false;
+  }
+  if (isAutoAdvertReplyEchoSuppressed()) {
+    return false;
+  }
+  return true;
+}
+
+bool MyMesh::isAutoAdvertReplyRateLimited() const {
+  return auto_advert_reply_rate_limited_until != 0 &&
+         !millisHasNowPassed(auto_advert_reply_rate_limited_until);
+}
+
+bool MyMesh::isAutoAdvertReplyEchoSuppressed() const {
+  return auto_advert_reply_echo_suppressed_until != 0 &&
+         !millisHasNowPassed(auto_advert_reply_echo_suppressed_until);
+}
+
+void MyMesh::markAutoAdvertReplyRateLimit() {
+  auto_advert_reply_rate_limited_until = futureMillis(AUTO_ADVERT_REPLY_RATE_LIMIT_MILLIS);
+}
+
+void MyMesh::markAutoAdvertReplyEchoSuppression() {
+  auto_advert_reply_echo_suppressed_until = futureMillis(AUTO_ADVERT_REPLY_ECHO_SUPPRESSION_MILLIS);
+}
+
+bool MyMesh::scheduleAutoAdvertReply(const ContactInfo &contact, bool was_flood) {
+  mesh::Packet *reply = NULL;
+  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
+    reply = createSelfAdvert(_prefs.node_name);
+  } else {
+    reply = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
+  }
+  if (reply == NULL) {
+    return false;
+  }
+
+  uint32_t delay_millis = AUTO_ADVERT_REPLY_DELAY_MIN_MILLIS;
+  if (AUTO_ADVERT_REPLY_DELAY_MAX_MILLIS > AUTO_ADVERT_REPLY_DELAY_MIN_MILLIS) {
+    delay_millis = getRNG()->nextInt(AUTO_ADVERT_REPLY_DELAY_MIN_MILLIS,
+                                     AUTO_ADVERT_REPLY_DELAY_MAX_MILLIS + 1);
+  }
+
+  if (was_flood) {
+    sendFloodScoped(contact, reply, delay_millis);
+    MESH_DEBUG_PRINTLN("auto advert flood reply queued for %s in %d ms", contact.name, delay_millis);
+  } else {
+    sendZeroHop(reply, delay_millis);
+    MESH_DEBUG_PRINTLN("auto advert direct reply queued for %s in %d ms", contact.name, delay_millis);
+  }
+
+  return true;
+}
+
 void MyMesh::onContactOverwrite(const uint8_t* pub_key) {
     _store->deleteBlobByKey(pub_key, PUB_KEY_SIZE); // delete from storage
   if (_serial->isConnected()) {
@@ -343,9 +416,9 @@ void MyMesh::onContactsFull() {
   }
 }
 
-void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
+void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_newly_seen, bool was_flood, uint8_t path_len, const uint8_t* path) {
   if (_serial->isConnected()) {
-    if (is_new) {
+    if (is_newly_seen) {
       writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact);
     } else {
       out_frame[0] = PUSH_CODE_ADVERT;
@@ -379,7 +452,14 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     p->path_len = mesh::Packet::copyPath(p->path, path, path_len);
   }
 
-  if (!is_new) dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // only schedule lazy write for contacts that are in contacts[]
+  if (shouldAutoReplyToAdvert(contact, is_newly_seen)) {
+    if (scheduleAutoAdvertReply(contact, was_flood)) {
+      markAutoAdvertReplyRateLimit();
+      markAutoAdvertReplyEchoSuppression();
+    }
+  }
+
+  if (!is_newly_seen) dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // only schedule lazy write for contacts that are in contacts[]
 }
 
 static int sort_by_recent(const void *a, const void *b) {
@@ -847,6 +927,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   sign_data = NULL;
   dirty_contacts_expiry = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
+  auto_advert_reply_rate_limited_until = 0;
+  auto_advert_reply_echo_suppressed_until = 0;
   memset(send_scope.key, 0, sizeof(send_scope.key));
 
   // defaults
@@ -860,6 +942,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.tx_power_dbm = LORA_TX_POWER;
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
+  _prefs.auto_advert_reply_on_rx = 0;
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -2139,6 +2222,7 @@ bool MyMesh::advert() {
   }
   if (pkt) {
     sendZeroHop(pkt);
+    markAutoAdvertReplyEchoSuppression();
     return true;
   } else {
     return false;

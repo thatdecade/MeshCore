@@ -132,12 +132,13 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     packet->header = save;
   }
 
-  bool is_new = false; // true = not in contacts[], false = exists in contacts[]
+  bool is_newly_seen = false; // true when this advert should be treated as a first-seen discovery for UI/policy
+  bool was_flood = packet->isRouteFlood();
   if (from == NULL) {
     if (!shouldAutoAddContactType(parser.getType())) {
       ContactInfo ci;
       populateContactFromAdvert(ci, id, parser, timestamp);
-      onDiscoveredContact(ci, true, packet->path_len, packet->path);       // let UI know
+      onDiscoveredContact(ci, true, was_flood, packet->path_len, packet->path);       // let UI know
       return;
     }
 
@@ -146,7 +147,7 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     if (max_hops > 0 && packet->getPathHashCount() >= max_hops) {
       ContactInfo ci;
       populateContactFromAdvert(ci, id, parser, timestamp);
-      onDiscoveredContact(ci, true, packet->path_len, packet->path);       // let UI know
+      onDiscoveredContact(ci, true, was_flood, packet->path_len, packet->path);       // let UI know
       return;
     }
 
@@ -154,7 +155,7 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     if (from == NULL) {
       ContactInfo ci;
       populateContactFromAdvert(ci, id, parser, timestamp);
-      onDiscoveredContact(ci, true, packet->path_len, packet->path);
+      onDiscoveredContact(ci, true, was_flood, packet->path_len, packet->path);
       onContactsFull();
       MESH_DEBUG_PRINTLN("onAdvertRecv: unable to allocate contact slot for new contact");
       return;
@@ -163,6 +164,7 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     populateContactFromAdvert(*from, id, parser, timestamp);
     from->sync_since = 0;
     from->shared_secret_valid = false;
+    is_newly_seen = true;
   }
   // update
     putBlobByKey(id.pub_key, PUB_KEY_SIZE, temp_buf, plen);
@@ -175,7 +177,7 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     from->last_advert_timestamp = timestamp;
     from->lastmod = getRTCClock()->getCurrentTime();
 
-  onDiscoveredContact(*from, is_new, packet->path_len, packet->path);       // let UI know
+  onDiscoveredContact(*from, is_newly_seen, was_flood, packet->path_len, packet->path);       // let UI know
 }
 
 int BaseChatMesh::searchPeersByHash(const uint8_t* hash) {

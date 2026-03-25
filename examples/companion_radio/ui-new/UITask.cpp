@@ -279,8 +279,12 @@ public:
       display.drawTextCentered(display.width() / 2, 64 - 11, "toggle: " PRESS_LABEL);
     } else if (_page == HomePage::ADVERT) {
       display.setColor(DisplayDriver::GREEN);
-      display.drawXbm((display.width() - 32) / 2, 18, advert_icon, 32, 32);
-      display.drawTextCentered(display.width() / 2, 64 - 11, "advert: " PRESS_LABEL);
+      display.drawXbm((display.width() - 32) / 2, 10, advert_icon, 32, 32);
+      display.setTextSize(1);
+      display.drawTextCentered(display.width() / 2, 44,
+          _node_prefs->auto_advert_reply_on_rx ? "auto rx: on" : "auto rx: off");
+      display.drawTextCentered(display.width() / 2, 52, "send: " PRESS_LABEL);
+      display.drawTextCentered(display.width() / 2, 60, "triple: toggle");
 #if ENV_INCLUDE_GPS == 1
     } else if (_page == HomePage::GPS) {
       LocationProvider* nmea = sensors.getLocationProvider();
@@ -432,6 +436,19 @@ public:
       } else {
         _task->showAlert("Advert failed..", 1000);
       }
+      return true;
+    }
+    if (c == KEY_SELECT && _page == HomePage::ADVERT) {
+      _node_prefs->auto_advert_reply_on_rx = _node_prefs->auto_advert_reply_on_rx ? 0 : 1;
+      the_mesh.savePrefs();
+      if (_node_prefs->auto_advert_reply_on_rx) {
+        _task->notify(UIEventType::ack);
+      }
+      _task->showAlert(_node_prefs->auto_advert_reply_on_rx ? "Auto reply: ON" : "Auto reply: OFF", 1000);
+      return true;
+    }
+    if (c == KEY_SELECT) {
+      _task->toggleBuzzer();
       return true;
     }
 #if ENV_INCLUDE_GPS == 1
@@ -712,7 +729,9 @@ void UITask::shutdown(bool restart){
 }
 
 bool UITask::isButtonPressed() const {
-#ifdef PIN_USER_BTN
+#if UI_HAS_JOYSTICK
+  return user_btn.isPressed() || back_btn.isPressed();
+#elif defined(PIN_USER_BTN)
   return user_btn.isPressed();
 #else
   return false;
@@ -741,7 +760,13 @@ void UITask::loop() {
     c = handleLongPress(KEY_RIGHT);
   }
   ev = back_btn.check();
-  if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_PREV);
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+    c = handleLongPress(KEY_ENTER);
+  } else if (ev == BUTTON_EVENT_DOUBLE_CLICK) {
+    c = handleDoubleClick(KEY_NEXT);
+  } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
     c = handleTripleClick(KEY_SELECT);
   }
 #elif defined(PIN_USER_BTN)
@@ -881,10 +906,12 @@ char UITask::handleDoubleClick(char c) {
 
 char UITask::handleTripleClick(char c) {
   MESH_DEBUG_PRINTLN("UITask: triple click triggered");
-  checkDisplayOn(c);
+  c = checkDisplayOn(c);
+  if (curr == home) {
+    return c;
+  }
   toggleBuzzer();
-  c = 0;
-  return c;
+  return 0;
 }
 
 bool UITask::getGPSState() {

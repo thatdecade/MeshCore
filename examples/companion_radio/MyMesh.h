@@ -123,7 +123,7 @@ protected:
   void onContactsFull() override;
   void onContactOverwrite(const uint8_t* pub_key) override;
   bool onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_t in_path_len, uint8_t* out_path, uint8_t out_path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) override;
-  void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) override;
+  void onDiscoveredContact(ContactInfo &contact, bool is_newly_seen, bool was_flood, uint8_t path_len, const uint8_t* path) override;
   void onContactPathUpdated(const ContactInfo &contact) override;
   ContactInfo* processAck(const uint8_t *data) override;
   void queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet *pkt, uint32_t sender_timestamp,
@@ -183,6 +183,13 @@ private:
   void checkCLIRescueCmd();
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
+  bool isAutoAdvertReplyEnabled() const;
+  bool shouldAutoReplyToAdvert(const ContactInfo &contact, bool is_newly_seen) const;
+  bool isAutoAdvertReplyRateLimited() const;
+  bool isAutoAdvertReplyEchoSuppressed() const;
+  void markAutoAdvertReplyRateLimit();
+  void markAutoAdvertReplyEchoSuppression();
+  bool scheduleAutoAdvertReply(const ContactInfo &contact, bool was_flood);
 
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
@@ -214,6 +221,9 @@ private:
   uint8_t cmd_frame[MAX_FRAME_SIZE + 1];
   uint8_t out_frame[MAX_FRAME_SIZE + 1];
   CayenneLPP telemetry;
+
+  unsigned long auto_advert_reply_rate_limited_until;
+  unsigned long auto_advert_reply_echo_suppressed_until;
 
   struct Frame {
     uint8_t len;

@@ -202,7 +202,7 @@ protected:
     return true;
   }
 
-  void onDiscoveredContact(ContactInfo& contact, bool is_new, uint8_t path_len, const uint8_t* path) override {
+  void onDiscoveredContact(ContactInfo& contact, bool is_newly_seen, bool was_flood, uint8_t path_len, const uint8_t* path) override {
     // TODO: if not in favs,  prompt to add as fav(?)
 
     Serial.printf("ADVERT from -> %s\n", contact.name);
