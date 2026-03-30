@@ -86,7 +86,13 @@ public:
 #endif
   }
 
-  void toggleBuzzer();
+  enum AlertMode : uint8_t { ALERT_MODE_LOUD = 0, ALERT_MODE_VIBRATE = 1, ALERT_MODE_SILENT = 2 };
+
+  void cycleAlertMode();
+  AlertMode getAlertMode() const;
+  const char* getAlertModeLabel() const;
+  void applyAlertMode();
+  void playAlertModeFeedback(AlertMode mode);
   bool getGPSState();
   void toggleGPS();
 

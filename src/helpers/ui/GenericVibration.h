@@ -21,13 +21,14 @@
 class GenericVibration {
 public:
   void begin();       // set up vibration pin
-  void trigger();     // trigger vibration if cooldown has passed
+  void trigger(unsigned long pulse_millis = VIBRATION_TIMEOUT);  // trigger vibration if cooldown has passed   // trigger vibration pulse
   void loop();        // non-blocking timer handling
   bool isVibrating(); // returns true if currently vibrating
   void stop();        // stop vibration immediately
 
 private:
-  unsigned long duration;
+  unsigned long _started_at;
+  unsigned long _pulse_millis;
 };
 
 #endif // ifdef PIN_VIBRATION

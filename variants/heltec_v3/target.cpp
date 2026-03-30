@@ -31,7 +31,7 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
       #define PIN_NAV_ENTER PIN_USER_BTN
     #endif
 
-    MomentaryButton user_btn(PIN_NAV_ENTER, 1000, true, true, false, 25);
+    MomentaryButton user_btn(PIN_NAV_ENTER, 1000, true, true, true, 25);
     MomentaryButton joystick_left(JOYSTICK_LEFT, 0, true, true, false, 25);
     MomentaryButton joystick_right(JOYSTICK_RIGHT, 0, true, true, false, 25);
     MomentaryButton back_btn(PIN_BACK_BTN, 1000, true, false, true, 25);

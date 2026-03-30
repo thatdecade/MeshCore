@@ -4,34 +4,32 @@
 void GenericVibration::begin() {
   pinMode(PIN_VIBRATION, OUTPUT);
   digitalWrite(PIN_VIBRATION, LOW);
-  duration = 0;
+  _started_at = 0;
+  _pulse_millis = VIBRATION_TIMEOUT;
 }
 
-void GenericVibration::trigger() {
-  duration = millis();
+void GenericVibration::trigger(unsigned long pulse_millis) {
+  _started_at = millis();
+  _pulse_millis = pulse_millis;
   digitalWrite(PIN_VIBRATION, HIGH);
 }
 
 void GenericVibration::loop() {
   if (isVibrating()) {
-    if ((millis() / 1000) % 2 == 0) {
-      digitalWrite(PIN_VIBRATION, LOW);
-    } else {
-      digitalWrite(PIN_VIBRATION, HIGH);
-    }
-
-    if (millis() - duration > VIBRATION_TIMEOUT) {
+    digitalWrite(PIN_VIBRATION, HIGH);
+    if (millis() - _started_at > _pulse_millis) {
       stop();
     }
   }
 }
 
 bool GenericVibration::isVibrating() {
-  return duration > 0;
+  return _started_at > 0;
 }
 
 void GenericVibration::stop() {
-  duration = 0;
+  _started_at = 0;
+  _pulse_millis = VIBRATION_TIMEOUT;
   digitalWrite(PIN_VIBRATION, LOW);
 }
 

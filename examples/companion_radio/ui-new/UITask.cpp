@@ -24,7 +24,7 @@
 #endif
 
 #if UI_HAS_JOYSTICK
-  #define PRESS_LABEL "press Enter"
+  #define PRESS_LABEL "hold Enter"
 #else
   #define PRESS_LABEL "long press"
 #endif
@@ -263,9 +263,9 @@ public:
       sprintf(tmp, "BW: %03.2f     CR: %d", _node_prefs->bw, _node_prefs->cr);
       display.print(tmp);
 
-      // tx power,  noise floor
+      // tx power, battery voltage, noise floor
       display.setCursor(0, 42);
-      sprintf(tmp, "TX: %ddBm", _node_prefs->tx_power_dbm);
+      sprintf(tmp, "TX: %ddBm BAT: %.2fV", _node_prefs->tx_power_dbm, _task->getBattMilliVolts() / 1000.0f);
       display.print(tmp);
       display.setCursor(0, 53);
       sprintf(tmp, "Noise floor: %d", radio_driver.getNoiseFloor());
@@ -583,7 +583,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 #ifdef PIN_BUZZER
   buzzer.begin();
-  buzzer.quiet(_node_prefs->buzzer_quiet);
+  applyAlertMode();
 #endif
 
 #ifdef PIN_VIBRATION
@@ -605,8 +605,10 @@ void UITask::showAlert(const char* text, int duration_millis) {
 }
 
 void UITask::notify(UIEventType t) {
+  AlertMode mode = getAlertMode();
+
 #if defined(PIN_BUZZER)
-  if (!buzzer.isQuiet()) {
+  if (mode == ALERT_MODE_LOUD) {
     switch(t){
       case UIEventType::contactMessage:
         buzzer.play("MsgRcv3:d=4,o=6,b=200:32e,32g,32b,16c7");
@@ -627,15 +629,8 @@ void UITask::notify(UIEventType t) {
 #endif
 
 #ifdef PIN_VIBRATION
-  // Trigger vibration for all UI events except none
-  if (t != UIEventType::none) {
-    bool silent_mode_enabled = true;
-    #if defined(PIN_BUZZER)
-      silent_mode_enabled = buzzer.isQuiet();
-    #endif
-    if (silent_mode_enabled) {
-      vibration.trigger();
-    }
+  if (t != UIEventType::none && mode == ALERT_MODE_VIBRATE) {
+    vibration.trigger();
   }
 #endif
 }
@@ -730,10 +725,10 @@ void UITask::loop() {
   char c = 0;
 #if UI_HAS_JOYSTICK
   int ev = user_btn.check();
-  if (ev == BUTTON_EVENT_CLICK) {
+  if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = checkDisplayOn(KEY_ENTER);
-  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
-    c = checkDisplayOn(KEY_ENTER);
+  } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
+    c = handleTripleClick(KEY_SELECT);
   }
   ev = joystick_left.check();
   if (ev == BUTTON_EVENT_CLICK) {
@@ -891,7 +886,7 @@ char UITask::handleDoubleClick(char c) {
 char UITask::handleTripleClick(char c) {
   MESH_DEBUG_PRINTLN("UITask: triple click triggered");
   c = checkDisplayOn(c);
-  toggleBuzzer();
+  cycleAlertMode();
   c = 0;
   return c;
 }
@@ -932,18 +927,59 @@ void UITask::toggleGPS() {
   }
 }
 
-void UITask::toggleBuzzer() {
-    // Toggle pager silent mode
-  #ifdef PIN_BUZZER
-    if (buzzer.isQuiet()) {
+UITask::AlertMode UITask::getAlertMode() const {
+  if (_node_prefs == NULL) {
+    return ALERT_MODE_LOUD;
+  }
+  return static_cast<AlertMode>(constrain(_node_prefs->alert_mode, 0, 2));
+}
+
+const char* UITask::getAlertModeLabel() const {
+  switch (getAlertMode()) {
+    case ALERT_MODE_VIBRATE:
+      return "Mode: Vibrate";
+    case ALERT_MODE_SILENT:
+      return "Mode: Silent";
+    case ALERT_MODE_LOUD:
+    default:
+      return "Mode: Loud";
+  }
+}
+
+void UITask::applyAlertMode() {
+#ifdef PIN_BUZZER
+  buzzer.quiet(getAlertMode() != ALERT_MODE_LOUD);
+#endif
+}
+
+void UITask::playAlertModeFeedback(AlertMode mode) {
+  switch (mode) {
+    case ALERT_MODE_LOUD:
+#ifdef PIN_BUZZER
       buzzer.quiet(false);
-      notify(UIEventType::ack);
-    } else {
-      buzzer.quiet(true);
-    }
-    _node_prefs->buzzer_quiet = buzzer.isQuiet();
-    the_mesh.savePrefs();
-    showAlert(buzzer.isQuiet() ? "Silent Mode On" : "Silent Mode Off", 1100);
-    _next_refresh = 0;  // trigger refresh
-  #endif
+      buzzer.play("ack:d=32,o=8,b=120:c");
+#endif
+      break;
+    case ALERT_MODE_VIBRATE:
+#ifdef PIN_VIBRATION
+      vibration.trigger(350);
+#endif
+      break;
+    case ALERT_MODE_SILENT:
+      break;
+  }
+}
+
+void UITask::cycleAlertMode() {
+  if (_node_prefs == NULL) {
+    return;
+  }
+
+  AlertMode next_mode = static_cast<AlertMode>((getAlertMode() + 1) % 3);
+  _node_prefs->alert_mode = static_cast<uint8_t>(next_mode);
+  applyAlertMode();
+  playAlertModeFeedback(next_mode);
+  the_mesh.savePrefs();
+  showAlert(getAlertModeLabel(), 1100);
+  _next_refresh = 0;  // trigger refresh
 }

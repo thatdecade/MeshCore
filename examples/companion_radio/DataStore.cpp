@@ -225,7 +225,7 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     file.read((uint8_t *)&_prefs.path_hash_mode, sizeof(_prefs.path_hash_mode));           // 78
     file.read(pad, 1);                                                                     // 79
     file.read((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
-    file.read((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));               // 84
+    file.read((uint8_t *)&_prefs.alert_mode, sizeof(_prefs.alert_mode));               // 84
     file.read((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));                 // 85
     file.read((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));               // 86
     file.read((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));           // 87
@@ -263,7 +263,7 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.path_hash_mode, sizeof(_prefs.path_hash_mode));           // 78
     file.write(pad, 1);                                                                     // 79
     file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
-    file.write((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));               // 84
+    file.write((uint8_t *)&_prefs.alert_mode, sizeof(_prefs.alert_mode));               // 84
     file.write((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));                 // 85
     file.write((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));               // 86
     file.write((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));           // 87

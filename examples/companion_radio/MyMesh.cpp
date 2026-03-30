@@ -858,6 +858,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.bw = LORA_BW;
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
+  _prefs.alert_mode = 0;       // Loud by default
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
@@ -904,6 +905,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.sf = constrain(_prefs.sf, 5, 12);
   _prefs.cr = constrain(_prefs.cr, 5, 8);
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
+  _prefs.alert_mode = constrain(_prefs.alert_mode, 0, 2);    // 0=loud, 1=vibrate, 2=silent
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
 

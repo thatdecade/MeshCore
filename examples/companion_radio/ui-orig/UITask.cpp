@@ -56,7 +56,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 #ifdef PIN_BUZZER
   buzzer.begin();
-  buzzer.quiet(_node_prefs->buzzer_quiet);
+  buzzer.quiet(_node_prefs->alert_mode != 0);
 #endif
 
   // Initialize digital button if available
@@ -397,17 +397,20 @@ void UITask::handleButtonDoublePress() {
 
 void UITask::handleButtonTriplePress() {
   MESH_DEBUG_PRINTLN("UITask: triple press triggered");
-  // Toggle buzzer quiet mode
   #ifdef PIN_BUZZER
-    if (buzzer.isQuiet()) {
-      buzzer.quiet(false);
+    _node_prefs->alert_mode = (_node_prefs->alert_mode + 1) % 3;
+    buzzer.quiet(_node_prefs->alert_mode != 0);
+    if (_node_prefs->alert_mode == 0) {
       notify(UIEventType::ack);
-      sprintf(_alert, "Buzzer: ON");
+      sprintf(_alert, "Mode: Loud");
+    } else if (_node_prefs->alert_mode == 1) {
+      #ifdef PIN_VIBRATION
+      vibration.trigger(350);
+      #endif
+      sprintf(_alert, "Mode: Vibrate");
     } else {
-      buzzer.quiet(true);
-      sprintf(_alert, "Buzzer: OFF");
+      sprintf(_alert, "Mode: Silent");
     }
-    _node_prefs->buzzer_quiet = buzzer.isQuiet();
     the_mesh.savePrefs();
     _need_refresh = true;
   #endif
