@@ -606,29 +606,36 @@ void UITask::showAlert(const char* text, int duration_millis) {
 
 void UITask::notify(UIEventType t) {
 #if defined(PIN_BUZZER)
-switch(t){
-  case UIEventType::contactMessage:
-    // gemini's pick
-    buzzer.play("MsgRcv3:d=4,o=6,b=200:32e,32g,32b,16c7");
-    break;
-  case UIEventType::channelMessage:
-    buzzer.play("kerplop:d=16,o=6,b=120:32g#,32c#");
-    break;
-  case UIEventType::ack:
-    buzzer.play("ack:d=32,o=8,b=120:c");
-    break;
-  case UIEventType::roomMessage:
-  case UIEventType::newContactMessage:
-  case UIEventType::none:
-  default:
-    break;
-}
+  if (!buzzer.isQuiet()) {
+    switch(t){
+      case UIEventType::contactMessage:
+        buzzer.play("MsgRcv3:d=4,o=6,b=200:32e,32g,32b,16c7");
+        break;
+      case UIEventType::channelMessage:
+        buzzer.play("kerplop:d=16,o=6,b=120:32g#,32c#");
+        break;
+      case UIEventType::ack:
+        buzzer.play("ack:d=32,o=8,b=120:c");
+        break;
+      case UIEventType::roomMessage:
+      case UIEventType::newContactMessage:
+      case UIEventType::none:
+      default:
+        break;
+    }
+  }
 #endif
 
 #ifdef PIN_VIBRATION
   // Trigger vibration for all UI events except none
   if (t != UIEventType::none) {
-    vibration.trigger();
+    bool silent_mode_enabled = true;
+    #if defined(PIN_BUZZER)
+      silent_mode_enabled = buzzer.isQuiet();
+    #endif
+    if (silent_mode_enabled) {
+      vibration.trigger();
+    }
   }
 #endif
 }
@@ -726,22 +733,24 @@ void UITask::loop() {
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_ENTER);
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
-    c = handleLongPress(KEY_ENTER);  // REVISIT: could be mapped to different key code
+    c = checkDisplayOn(KEY_ENTER);
   }
   ev = joystick_left.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_LEFT);
-  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
-    c = handleLongPress(KEY_LEFT);
   }
   ev = joystick_right.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_RIGHT);
-  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
-    c = handleLongPress(KEY_RIGHT);
   }
   ev = back_btn.check();
-  if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_NEXT);
+  } else if (ev == BUTTON_EVENT_DOUBLE_CLICK) {
+    c = handleDoubleClick(KEY_PREV);
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+    c = checkDisplayOn(KEY_ENTER);
+  } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
     c = handleTripleClick(KEY_SELECT);
   }
 #elif defined(PIN_USER_BTN)
@@ -749,7 +758,7 @@ void UITask::loop() {
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_NEXT);
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
-    c = handleLongPress(KEY_ENTER);
+    c = checkDisplayOn(KEY_ENTER);
   } else if (ev == BUTTON_EVENT_DOUBLE_CLICK) {
     c = handleDoubleClick(KEY_PREV);
   } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
@@ -762,7 +771,7 @@ void UITask::loop() {
     if (ev == BUTTON_EVENT_CLICK) {
       c = checkDisplayOn(KEY_NEXT);
     } else if (ev == BUTTON_EVENT_LONG_PRESS) {
-      c = handleLongPress(KEY_ENTER);
+      c = checkDisplayOn(KEY_ENTER);
     } else if (ev == BUTTON_EVENT_DOUBLE_CLICK) {
       c = handleDoubleClick(KEY_PREV);
     } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
@@ -875,13 +884,13 @@ char UITask::handleLongPress(char c) {
 
 char UITask::handleDoubleClick(char c) {
   MESH_DEBUG_PRINTLN("UITask: double click triggered");
-  checkDisplayOn(c);
+  c = checkDisplayOn(c);
   return c;
 }
 
 char UITask::handleTripleClick(char c) {
   MESH_DEBUG_PRINTLN("UITask: triple click triggered");
-  checkDisplayOn(c);
+  c = checkDisplayOn(c);
   toggleBuzzer();
   c = 0;
   return c;
@@ -924,7 +933,7 @@ void UITask::toggleGPS() {
 }
 
 void UITask::toggleBuzzer() {
-    // Toggle buzzer quiet mode
+    // Toggle pager silent mode
   #ifdef PIN_BUZZER
     if (buzzer.isQuiet()) {
       buzzer.quiet(false);
@@ -934,7 +943,7 @@ void UITask::toggleBuzzer() {
     }
     _node_prefs->buzzer_quiet = buzzer.isQuiet();
     the_mesh.savePrefs();
-    showAlert(buzzer.isQuiet() ? "Buzzer: OFF" : "Buzzer: ON", 800);
+    showAlert(buzzer.isQuiet() ? "Silent Mode On" : "Silent Mode Off", 1100);
     _next_refresh = 0;  // trigger refresh
   #endif
 }
