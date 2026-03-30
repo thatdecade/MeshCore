@@ -14,6 +14,11 @@
 #define REAL_VBAT_MV_PER_LSB (VBAT_DIVIDER_COMP * VBAT_MV_PER_LSB)
 
 class ThinkNodeM1Board : public NRF52Board {
+protected:
+#ifdef NRF52_POWER_MANAGEMENT
+  void initiateShutdown(uint8_t reason) override;
+#endif
+
 public:
   ThinkNodeM1Board() : NRF52Board("THINKNODE_M1_OTA") {}
   void begin();
@@ -33,14 +38,23 @@ public:
   }
 
   void powerOff() override {
-
-    // turn off all leds, sd_power_system_off will not do this for us
-    #ifdef P_LORA_TX_LED
+#ifdef P_LORA_TX_LED
     digitalWrite(P_LORA_TX_LED, LOW);
-    #endif
+#endif
 
-    // power off board
+#ifdef PIN_USER_BTN
+    while (digitalRead(PIN_USER_BTN) == LOW);
+    nrf_gpio_cfg_sense_input(
+      digitalPinToInterrupt(g_ADigitalPinMap[PIN_USER_BTN]),
+      NRF_GPIO_PIN_PULLUP,
+      NRF_GPIO_PIN_SENSE_LOW
+    );
+#endif
+
+#ifdef NRF52_POWER_MANAGEMENT
+    initiateShutdown(SHUTDOWN_REASON_USER);
+#else
     sd_power_system_off();
-
+#endif
   }
 };

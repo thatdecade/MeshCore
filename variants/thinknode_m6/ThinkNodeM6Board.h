@@ -14,7 +14,7 @@
 
 class ThinkNodeM6Board : public NRF52BoardDCDC {
 protected:
-#if NRF52_POWER_MANAGEMENT
+#ifdef NRF52_POWER_MANAGEMENT
   void initiateShutdown(uint8_t reason) override;
 #endif
 
@@ -37,13 +37,25 @@ public:
   }
 
   void powerOff() override {
-
-    // turn off all leds, sd_power_system_off will not do this for us
-    #ifdef P_LORA_TX_LED
+#ifdef P_LORA_TX_LED
     digitalWrite(P_LORA_TX_LED, LOW);
-    #endif
+#endif
+    digitalWrite(PIN_LED_RED, LOW);
+    digitalWrite(PIN_LED_BLUE, LOW);
 
-    // power off board
+#ifdef PIN_USER_BTN
+    while (digitalRead(PIN_USER_BTN) == LOW);
+    nrf_gpio_cfg_sense_input(
+      digitalPinToInterrupt(g_ADigitalPinMap[PIN_USER_BTN]),
+      NRF_GPIO_PIN_PULLUP,
+      NRF_GPIO_PIN_SENSE_LOW
+    );
+#endif
+
+#ifdef NRF52_POWER_MANAGEMENT
+    initiateShutdown(SHUTDOWN_REASON_USER);
+#else
     sd_power_system_off();
+#endif
   }
 };

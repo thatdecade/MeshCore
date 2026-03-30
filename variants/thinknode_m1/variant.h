@@ -22,7 +22,11 @@
 #define PIN_PWR_EN              (12)
 
 #define BATTERY_PIN             (4)
-#define ADC_MULTIPLIER          (4.90F)
+#define ADC_MULTIPLIER          (2.0F)
+
+#define PWRMGT_VOLTAGE_BOOTLOCK (3300)
+#define PWRMGT_LPCOMP_AIN       (2)
+#define PWRMGT_LPCOMP_REFSEL    (3)
 
 #define ADC_RESOLUTION          (14)
 #define BATTERY_SENSE_RES       (12)
