@@ -1,15 +1,16 @@
 ## Fork changes in this branch
 
-To make MeshCore comaptible with [HarukiToreda's Pager Upgrade kit](https://www.etsy.com/listing/4359661489/heltec-v3-pager-upgrade-shield-for) for the Heltec V3, this fork enables gps, joystick navigation, buzzer, and vibration.
+To make MeshCore compatible with [HarukiToreda's Pager Upgrade kit](https://www.etsy.com/listing/4359661489/heltec-v3-pager-upgrade-shield-for) for the Heltec V3, this fork enables GPS, joystick navigation, vibration, and pager-style alert modes.
 
 ## Companion Behavior
 
-- Onboard button is Back
-- Joystick Center is Enter
+- Joystick hold is Enter
 - Joystick CCW is Left
 - Joystick CW is Right
-- Buzzer and vibration menus
-- GPS enabled
+
+- Triple click cycles alert mode: Loud, Vibrate, and Silent
+- Radio page shows battery voltage
+- GPS can be toggled from the GPS page
 
 ## Build Notes
 
