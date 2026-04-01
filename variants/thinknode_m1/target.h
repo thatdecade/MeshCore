@@ -39,7 +39,8 @@ extern ThinkNodeM1SensorManager sensors;
 
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;
-  extern MomentaryButton user_btn;
+  extern MomentaryButton triangle_btn;
+  extern MomentaryButton circle_btn;
 #endif
 
 bool radio_init();

@@ -60,6 +60,10 @@ class UITask : public AbstractUITask {
   char handleLongPress(char c);
   char handleDoubleClick(char c);
   char handleTripleClick(char c);
+  bool dismissOrBack();
+  bool shouldHandleCircleLongPress() const;
+  void clearAlert();
+  void renderHibernateSplash();
 
   void setCurrScreen(UIScreen* c);
 
@@ -77,6 +81,7 @@ public:
   int  getMsgCount() const { return _msgcount; }
   bool hasDisplay() const { return _display != NULL; }
   bool isButtonPressed() const;
+  bool isAlertVisible() const { return millis() < _alert_expiry; }
 
   bool isBuzzerQuiet() { 
 #ifdef PIN_BUZZER

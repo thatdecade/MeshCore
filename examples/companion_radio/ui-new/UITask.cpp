@@ -31,6 +31,52 @@
 
 #include "icons.h"
 
+struct SocPoint {
+  uint16_t millivolts;
+  uint8_t percent;
+};
+
+static const SocPoint THINKNODE_M1_SOC_CURVE[] = {
+  {4200, 100},
+  {4150, 95},
+  {4080, 85},
+  {4000, 75},
+  {3920, 62},
+  {3850, 50},
+  {3790, 38},
+  {3740, 25},
+  {3700, 15},
+  {3600, 5},
+  {3300, 0},
+};
+
+static uint8_t estimateBatterySocPercent(uint16_t batteryMilliVolts) {
+  const size_t point_count = sizeof(THINKNODE_M1_SOC_CURVE) / sizeof(THINKNODE_M1_SOC_CURVE[0]);
+
+  if (batteryMilliVolts >= THINKNODE_M1_SOC_CURVE[0].millivolts) {
+    return THINKNODE_M1_SOC_CURVE[0].percent;
+  }
+
+  if (batteryMilliVolts <= THINKNODE_M1_SOC_CURVE[point_count - 1].millivolts) {
+    return THINKNODE_M1_SOC_CURVE[point_count - 1].percent;
+  }
+
+  for (size_t index = 0; index < point_count - 1; ++index) {
+    const SocPoint& upper = THINKNODE_M1_SOC_CURVE[index];
+    const SocPoint& lower = THINKNODE_M1_SOC_CURVE[index + 1];
+
+    if (batteryMilliVolts <= upper.millivolts && batteryMilliVolts >= lower.millivolts) {
+      const long millivolt_span = upper.millivolts - lower.millivolts;
+      const long percent_span = upper.percent - lower.percent;
+      const long millivolts_above_lower = batteryMilliVolts - lower.millivolts;
+      const long interpolated_percent = lower.percent + ((millivolts_above_lower * percent_span + millivolt_span / 2) / millivolt_span);
+      return (uint8_t) constrain(interpolated_percent, 0L, 100L);
+    }
+  }
+
+  return 0;
+}
+
 class SplashScreen : public UIScreen {
   UITask* _task;
   unsigned long dismiss_after;
@@ -92,14 +138,160 @@ class HomeScreen : public UIScreen {
     Count    // keep as last
   };
 
+  struct FooterActions {
+    const char* circle;
+    const char* triangle;
+  };
+
   UITask* _task;
   mesh::RTCClock* _rtc;
   SensorManager* _sensors;
   NodePrefs* _node_prefs;
   uint8_t _page;
+  uint8_t _last_non_shutdown_page;
   bool _shutdown_init;
+  unsigned long _shutdown_release_at;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
+  int getContentRightEdge(DisplayDriver& display) const {
+#ifdef THINKNODE_M1
+    return display.width() - 10;
+#else
+    return display.width() - 1;
+#endif
+  }
+
+  void setPage(uint8_t page) {
+    _page = page;
+    _shutdown_release_at = 0;
+    if (_page != HomePage::SHUTDOWN) {
+      _last_non_shutdown_page = _page;
+    }
+  }
+
+  void beginShutdown() {
+    if (_page != HomePage::SHUTDOWN) {
+      _last_non_shutdown_page = _page;
+      _page = HomePage::SHUTDOWN;
+    }
+    _shutdown_init = true;
+    _shutdown_release_at = 0;
+  }
+
+  FooterActions getFooterActions() const {
+    FooterActions actions = {NULL, NULL};
+
+    if (_shutdown_init) {
+      actions.circle = "Cancel";
+      actions.triangle = "Hibernate";
+      return actions;
+    }
+
+    if (_page == HomePage::FIRST) {
+      return actions;
+    }
+
+    if (_task->isAlertVisible()) {
+      actions.circle = "Dismiss";
+    }
+
+    switch (_page) {
+      case HomePage::BLUETOOTH:
+        actions.triangle = "Toggle BT";
+        break;
+      case HomePage::ADVERT:
+        actions.triangle = "Advert";
+        break;
+#if ENV_INCLUDE_GPS == 1
+      case HomePage::GPS:
+        actions.triangle = "Toggle GPS";
+        break;
+#endif
+#if UI_SENSORS_PAGE == 1
+      case HomePage::SENSORS:
+        actions.triangle = "Refresh";
+        break;
+#endif
+      case HomePage::SHUTDOWN:
+        actions.triangle = "Hibernate";
+        break;
+      default:
+        break;
+    }
+
+    return actions;
+  }
+
+  void renderFooterRow(DisplayDriver& display, int row_top, const char* label, const uint8_t* icon_bits) {
+    if (label == NULL) {
+      return;
+    }
+
+    const int icon_width = 8;
+    const int icon_height = 8;
+    const int icon_right_padding = 6;
+    const int label_gap = 6;
+    const int icon_x = display.width() - icon_right_padding - icon_width;
+    const int label_right_x = icon_x - label_gap;
+
+    // FreeSans uses baseline y coordinates, while the footer icons use top-left y.
+    // On the M1 e-ink panel the 8x8 button glyphs read visually high if they are
+    // centered mathematically in the slot, so bias them downward a few pixels.
+    const int text_baseline_y = row_top + 7;
+    const int icon_y = row_top + 10;
+
+    display.drawTextRightAlign(label_right_x, text_baseline_y, label);
+    display.drawXbm(icon_x, icon_y, icon_bits, icon_width, icon_height);
+  }
+
+  void renderFooter(DisplayDriver& display) {
+#ifdef THINKNODE_M1
+    FooterActions actions = getFooterActions();
+    if (actions.circle == NULL && actions.triangle == NULL) {
+      return;
+    }
+
+    display.setTextSize(1);
+    display.setColor(DisplayDriver::GREEN);
+
+    const int footer_top = display.height() - 38;
+    const int circle_row_top = footer_top + 4;
+    const int triangle_row_top = footer_top + 16;
+
+    renderFooterRow(display, circle_row_top, actions.circle, button_circle_icon);
+    renderFooterRow(display, triangle_row_top, actions.triangle, button_triangle_icon);
+#endif
+  }
+
+  void renderPageIndicator(DisplayDriver& display) {
+#ifdef THINKNODE_M1
+    const int footer_height = 38;
+    const int content_top = 20;
+    const int content_bottom = display.height() - footer_height - 4;
+    const int spacing = 10;
+    const int total_height = (HomePage::Count - 1) * spacing + 3;
+    int y = content_top + ((content_bottom - content_top) - total_height) / 2;
+    const int x = display.width() - 4;
+
+    for (uint8_t i = 0; i < HomePage::Count; i++, y += spacing) {
+      if (i == _page) {
+        display.fillRect(x - 1, y - 1, 3, 3);
+      } else {
+        display.fillRect(x, y, 1, 1);
+      }
+    }
+#else
+    int y = 14;
+    int x = display.width() / 2 - 5 * (HomePage::Count - 1);
+    for (uint8_t i = 0; i < HomePage::Count; i++, x += 10) {
+      if (i == _page) {
+        display.fillRect(x - 1, y - 1, 3, 3);
+      } else {
+        display.fillRect(x, y, 1, 1);
+      }
+    }
+#endif
+  }
 
   void renderBatteryIndicator(DisplayDriver& display, uint16_t batteryMilliVolts) {
     // Convert millivolts to percentage
@@ -112,27 +304,21 @@ class HomeScreen : public UIScreen {
     const int minMilliVolts = BATT_MIN_MILLIVOLTS;
     const int maxMilliVolts = BATT_MAX_MILLIVOLTS;
     int batteryPercentage = ((batteryMilliVolts - minMilliVolts) * 100) / (maxMilliVolts - minMilliVolts);
-    if (batteryPercentage < 0) batteryPercentage = 0; // Clamp to 0%
-    if (batteryPercentage > 100) batteryPercentage = 100; // Clamp to 100%
+    if (batteryPercentage < 0) batteryPercentage = 0;
+    if (batteryPercentage > 100) batteryPercentage = 100;
 
-    // battery icon
     int iconWidth = 24;
     int iconHeight = 10;
-    int iconX = display.width() - iconWidth - 5; // Position the icon near the top-right corner
+    int iconX = display.width() - iconWidth - 5;
     int iconY = 0;
     display.setColor(DisplayDriver::GREEN);
 
-    // battery outline
     display.drawRect(iconX, iconY, iconWidth, iconHeight);
-
-    // battery "cap"
     display.fillRect(iconX + iconWidth, iconY + (iconHeight / 4), 3, iconHeight / 2);
 
-    // fill the battery based on the percentage
     int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
     display.fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
 
-    // show muted icon if buzzer is muted
 #ifdef PIN_BUZZER
     if (_task->isBuzzerQuiet()) {
       display.setColor(DisplayDriver::RED);
@@ -146,42 +332,81 @@ class HomeScreen : public UIScreen {
   bool sensors_scroll = false;
   int sensors_scroll_offset = 0;
   int next_sensors_refresh = 0;
-  
+
   void refresh_sensors() {
     if (millis() > next_sensors_refresh) {
       sensors_lpp.reset();
       sensors_nb = 0;
-      sensors_lpp.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
+      sensors_lpp.addVoltage(TELEM_CHANNEL_SELF, (float) board.getBattMilliVolts() / 1000.0f);
       sensors.querySensors(0xFF, sensors_lpp);
-      LPPReader reader (sensors_lpp.getBuffer(), sensors_lpp.getSize());
+      LPPReader reader(sensors_lpp.getBuffer(), sensors_lpp.getSize());
       uint8_t channel, type;
-      while(reader.readHeader(channel, type)) {
+      while (reader.readHeader(channel, type)) {
         reader.skipData(type);
-        sensors_nb ++;
+        sensors_nb++;
       }
       sensors_scroll = sensors_nb > UI_RECENT_LIST_SIZE;
 #if AUTO_OFF_MILLIS > 0
-      next_sensors_refresh = millis() + 5000; // refresh sensor values every 5 sec
+      next_sensors_refresh = millis() + 5000;
 #else
-      next_sensors_refresh = millis() + 60000; // refresh sensor values every 1 min
+      next_sensors_refresh = millis() + 60000;
 #endif
     }
   }
 
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
-     : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0), 
-       _shutdown_init(false), sensors_lpp(200) {  }
+    : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(FIRST),
+      _last_non_shutdown_page(FIRST), _shutdown_init(false), _shutdown_release_at(0), sensors_lpp(200) { }
+
+  void gotoPreviousPage() {
+    _shutdown_init = false;
+    setPage((_page + HomePage::Count - 1) % HomePage::Count);
+    if (_page == HomePage::RECENT) {
+      _task->showAlert("Recent adverts", 800);
+    }
+  }
+
+  void gotoNextPage() {
+    _shutdown_init = false;
+    setPage((_page + 1) % HomePage::Count);
+    if (_page == HomePage::RECENT) {
+      _task->showAlert("Recent adverts", 800);
+    }
+  }
+
+  void cancelShutdown() {
+    _shutdown_init = false;
+    _shutdown_release_at = 0;
+    if (_page == HomePage::SHUTDOWN) {
+      _page = _last_non_shutdown_page;
+    }
+  }
+
+  bool isShutdownPending() const {
+    return _shutdown_init;
+  }
 
   void poll() override {
-    if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
-      _task->shutdown();
+    if (_shutdown_init) {
+      if (_task->isButtonPressed()) {
+        _shutdown_release_at = 0;
+        return;
+      }
+
+      if (_shutdown_release_at == 0) {
+        _shutdown_release_at = millis();
+        return;
+      }
+
+      if (millis() - _shutdown_release_at >= 900) {
+        _task->shutdown();
+      }
     }
   }
 
   int render(DisplayDriver& display) override {
     char tmp[80];
-    // node name
     display.setTextSize(1);
     display.setColor(DisplayDriver::GREEN);
     char filtered_name[sizeof(_node_prefs->node_name)];
@@ -189,19 +414,8 @@ public:
     display.setCursor(0, 0);
     display.print(filtered_name);
 
-    // battery voltage
     renderBatteryIndicator(display, _task->getBattMilliVolts());
-
-    // curr page indicator
-    int y = 14;
-    int x = display.width() / 2 - 5 * (HomePage::Count-1);
-    for (uint8_t i = 0; i < HomePage::Count; i++, x += 10) {
-      if (i == _page) {
-        display.fillRect(x-1, y-1, 3, 3);
-      } else {
-        display.fillRect(x, y, 1, 1);
-      }
-    }
+    renderPageIndicator(display);
 
     if (_page == HomePage::FIRST) {
       display.setColor(DisplayDriver::YELLOW);
@@ -209,80 +423,88 @@ public:
       sprintf(tmp, "MSG: %d", _task->getMsgCount());
       display.drawTextCentered(display.width() / 2, 20, tmp);
 
-      #ifdef WIFI_SSID
-        IPAddress ip = WiFi.localIP();
-        snprintf(tmp, sizeof(tmp), "IP: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-        display.setTextSize(1);
-        display.drawTextCentered(display.width() / 2, 54, tmp); 
-      #endif
+#ifdef WIFI_SSID
+      IPAddress ip = WiFi.localIP();
+      snprintf(tmp, sizeof(tmp), "IP: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+      display.setTextSize(1);
+      display.drawTextCentered(display.width() / 2, 54, tmp);
+#endif
       if (_task->hasConnection()) {
         display.setColor(DisplayDriver::GREEN);
         display.setTextSize(1);
         display.drawTextCentered(display.width() / 2, 43, "< Connected >");
-
-      } else if (the_mesh.getBLEPin() != 0) { // BT pin
+      } else if (the_mesh.getBLEPin() != 0) {
         display.setColor(DisplayDriver::RED);
         display.setTextSize(2);
         sprintf(tmp, "Pin:%d", the_mesh.getBLEPin());
         display.drawTextCentered(display.width() / 2, 43, tmp);
       }
     } else if (_page == HomePage::RECENT) {
+      const int content_right = getContentRightEdge(display);
       the_mesh.getRecentlyHeard(recent, UI_RECENT_LIST_SIZE);
       display.setColor(DisplayDriver::GREEN);
       int y = 20;
       for (int i = 0; i < UI_RECENT_LIST_SIZE; i++, y += 11) {
         auto a = &recent[i];
-        if (a->name[0] == 0) continue;  // empty slot
+        if (a->name[0] == 0) continue;
         int secs = _rtc->getCurrentTime() - a->recv_timestamp;
         if (secs < 60) {
           sprintf(tmp, "%ds", secs);
-        } else if (secs < 60*60) {
+        } else if (secs < 60 * 60) {
           sprintf(tmp, "%dm", secs / 60);
         } else {
-          sprintf(tmp, "%dh", secs / (60*60));
+          sprintf(tmp, "%dh", secs / (60 * 60));
         }
-        
+
         int timestamp_width = display.getTextWidth(tmp);
-        int max_name_width = display.width() - timestamp_width - 1;
-        
+        int max_name_width = content_right - timestamp_width - 2;
+
         char filtered_recent_name[sizeof(a->name)];
         display.translateUTF8ToBlocks(filtered_recent_name, a->name, sizeof(filtered_recent_name));
         display.drawTextEllipsized(0, y, max_name_width, filtered_recent_name);
-        display.setCursor(display.width() - timestamp_width - 1, y);
+        display.setCursor(content_right - timestamp_width, y);
         display.print(tmp);
       }
     } else if (_page == HomePage::RADIO) {
       display.setColor(DisplayDriver::YELLOW);
       display.setTextSize(1);
-      // freq / sf
       display.setCursor(0, 20);
       sprintf(tmp, "FQ: %06.3f   SF: %d", _node_prefs->freq, _node_prefs->sf);
       display.print(tmp);
 
       display.setCursor(0, 31);
-      sprintf(tmp, "BW: %03.2f     CR: %d", _node_prefs->bw, _node_prefs->cr);
+      sprintf(tmp, "BW: %05.2f   CR: %d", _node_prefs->bw, _node_prefs->cr);
       display.print(tmp);
 
-      // tx power, battery voltage, noise floor
       display.setCursor(0, 42);
-      sprintf(tmp, "TX: %ddBm BAT: %.2fV", _node_prefs->tx_power_dbm, _task->getBattMilliVolts() / 1000.0f);
+      sprintf(tmp, "TX: %ddBm   NF: %d", _node_prefs->tx_power_dbm, radio_driver.getNoiseFloor());
       display.print(tmp);
-      display.setCursor(0, 53);
-      sprintf(tmp, "Noise floor: %d", radio_driver.getNoiseFloor());
+
+      display.setCursor(0, 60);
+      sprintf(tmp, "BAT: %.2fV", _task->getBattMilliVolts() / 1000.0f);
+      display.print(tmp);
+
+      display.setCursor(0, 71);
+      sprintf(tmp, "SOC: %u%%", estimateBatterySocPercent(_task->getBattMilliVolts()));
       display.print(tmp);
     } else if (_page == HomePage::BLUETOOTH) {
       display.setColor(DisplayDriver::GREEN);
       display.drawXbm((display.width() - 32) / 2, 18,
-          _task->isSerialEnabled() ? bluetooth_on : bluetooth_off,
-          32, 32);
+        _task->isSerialEnabled() ? bluetooth_on : bluetooth_off,
+        32, 32);
+#ifndef THINKNODE_M1
       display.setTextSize(1);
       display.drawTextCentered(display.width() / 2, 64 - 11, "toggle: " PRESS_LABEL);
+#endif
     } else if (_page == HomePage::ADVERT) {
       display.setColor(DisplayDriver::GREEN);
       display.drawXbm((display.width() - 32) / 2, 18, advert_icon, 32, 32);
+#ifndef THINKNODE_M1
       display.drawTextCentered(display.width() / 2, 64 - 11, "advert: " PRESS_LABEL);
+#endif
 #if ENV_INCLUDE_GPS == 1
     } else if (_page == HomePage::GPS) {
+      const int content_right = getContentRightEdge(display);
       LocationProvider* nmea = sensors.getLocationProvider();
       char buf[50];
       int y = 18;
@@ -302,26 +524,25 @@ public:
         y = y + 12;
         display.drawTextLeftAlign(0, y, "Can't access GPS");
       } else {
-        strcpy(buf, nmea->isValid()?"fix":"no fix");
-        display.drawTextRightAlign(display.width()-1, y, buf);
+        strcpy(buf, nmea->isValid() ? "fix" : "no fix");
+        display.drawTextRightAlign(content_right, y, buf);
         y = y + 12;
         display.drawTextLeftAlign(0, y, "sat");
         sprintf(buf, "%d", nmea->satellitesCount());
-        display.drawTextRightAlign(display.width()-1, y, buf);
+        display.drawTextRightAlign(content_right, y, buf);
         y = y + 12;
         display.drawTextLeftAlign(0, y, "pos");
-        sprintf(buf, "%.4f %.4f", 
-          nmea->getLatitude()/1000000., nmea->getLongitude()/1000000.);
-        display.drawTextRightAlign(display.width()-1, y, buf);
+        sprintf(buf, "%.4f %.4f", nmea->getLatitude() / 1000000., nmea->getLongitude() / 1000000.);
+        display.drawTextRightAlign(content_right, y, buf);
         y = y + 12;
         display.drawTextLeftAlign(0, y, "alt");
-        sprintf(buf, "%.2f", nmea->getAltitude()/1000.);
-        display.drawTextRightAlign(display.width()-1, y, buf);
-        y = y + 12;
+        sprintf(buf, "%.2f", nmea->getAltitude() / 1000.);
+        display.drawTextRightAlign(content_right, y, buf);
       }
 #endif
 #if UI_SENSORS_PAGE == 1
     } else if (_page == HomePage::SENSORS) {
+      const int content_right = getContentRightEdge(display);
       int y = 18;
       refresh_sensors();
       char buf[30];
@@ -334,62 +555,70 @@ public:
         r.skipData(type);
       }
 
-      for (int i = 0; i < (sensors_scroll?UI_RECENT_LIST_SIZE:sensors_nb); i++) {
+      for (int i = 0; i < (sensors_scroll ? UI_RECENT_LIST_SIZE : sensors_nb); i++) {
         uint8_t channel, type;
-        if (!r.readHeader(channel, type)) { // reached end, reset
+        if (!r.readHeader(channel, type)) {
           r.reset();
           r.readHeader(channel, type);
         }
 
-        display.setCursor(0, y);
         float v;
         switch (type) {
-          case LPP_GPS: // GPS
+          case LPP_GPS: {
             float lat, lon, alt;
             r.readGPS(lat, lon, alt);
-            strcpy(name, "gps"); sprintf(buf, "%.4f %.4f", lat, lon);
+            strcpy(name, "gps");
+            sprintf(buf, "%.4f %.4f", lat, lon);
             break;
+          }
           case LPP_VOLTAGE:
             r.readVoltage(v);
-            strcpy(name, "voltage"); sprintf(buf, "%6.2f", v);
+            strcpy(name, "voltage");
+            sprintf(buf, "%6.2f", v);
             break;
           case LPP_CURRENT:
             r.readCurrent(v);
-            strcpy(name, "current"); sprintf(buf, "%.3f", v);
+            strcpy(name, "current");
+            sprintf(buf, "%.3f", v);
             break;
           case LPP_TEMPERATURE:
             r.readTemperature(v);
-            strcpy(name, "temperature"); sprintf(buf, "%.2f", v);
+            strcpy(name, "temperature");
+            sprintf(buf, "%.2f", v);
             break;
           case LPP_RELATIVE_HUMIDITY:
             r.readRelativeHumidity(v);
-            strcpy(name, "humidity"); sprintf(buf, "%.2f", v);
+            strcpy(name, "humidity");
+            sprintf(buf, "%.2f", v);
             break;
           case LPP_BAROMETRIC_PRESSURE:
             r.readPressure(v);
-            strcpy(name, "pressure"); sprintf(buf, "%.2f", v);
+            strcpy(name, "pressure");
+            sprintf(buf, "%.2f", v);
             break;
           case LPP_ALTITUDE:
             r.readAltitude(v);
-            strcpy(name, "altitude"); sprintf(buf, "%.0f", v);
+            strcpy(name, "altitude");
+            sprintf(buf, "%.0f", v);
             break;
           case LPP_POWER:
             r.readPower(v);
-            strcpy(name, "power"); sprintf(buf, "%6.2f", v);
+            strcpy(name, "power");
+            sprintf(buf, "%6.2f", v);
             break;
           default:
             r.skipData(type);
-            strcpy(name, "unk"); sprintf(buf, "");
+            strcpy(name, "unk");
+            sprintf(buf, "");
+            break;
         }
         display.setCursor(0, y);
         display.print(name);
-        display.setCursor(
-          display.width()-display.getTextWidth(buf)-1, y
-        );
+        display.setCursor(content_right - display.getTextWidth(buf), y);
         display.print(buf);
         y = y + 12;
       }
-      if (sensors_scroll) sensors_scroll_offset = (sensors_scroll_offset+1)%sensors_nb;
+      if (sensors_scroll) sensors_scroll_offset = (sensors_scroll_offset + 1) % sensors_nb;
       else sensors_scroll_offset = 0;
 #endif
     } else if (_page == HomePage::SHUTDOWN) {
@@ -399,26 +628,33 @@ public:
         display.drawTextCentered(display.width() / 2, 34, "hibernating...");
       } else {
         display.drawXbm((display.width() - 32) / 2, 18, power_icon, 32, 32);
+#ifndef THINKNODE_M1
         display.drawTextCentered(display.width() / 2, 64 - 11, "hibernate:" PRESS_LABEL);
+#endif
       }
     }
-    return 5000;   // next render after 5000 ms
+
+#ifdef THINKNODE_M1
+    renderFooter(display);
+#endif
+    return 5000;
   }
 
   bool handleInput(char c) override {
     if (c == KEY_LEFT || c == KEY_PREV) {
-      _page = (_page + HomePage::Count - 1) % HomePage::Count;
+      gotoPreviousPage();
       return true;
     }
     if (c == KEY_NEXT || c == KEY_RIGHT) {
-      _page = (_page + 1) % HomePage::Count;
-      if (_page == HomePage::RECENT) {
-        _task->showAlert("Recent adverts", 800);
-      }
+      gotoNextPage();
+      return true;
+    }
+    if (c == KEY_ENTER && _page == HomePage::FIRST) {
+      beginShutdown();
       return true;
     }
     if (c == KEY_ENTER && _page == HomePage::BLUETOOTH) {
-      if (_task->isSerialEnabled()) {  // toggle Bluetooth on/off
+      if (_task->isSerialEnabled()) {
         _task->disableSerial();
       } else {
         _task->enableSerial();
@@ -442,13 +678,12 @@ public:
 #endif
 #if UI_SENSORS_PAGE == 1
     if (c == KEY_ENTER && _page == HomePage::SENSORS) {
-      _task->toggleGPS();
-      next_sensors_refresh=0;
+      next_sensors_refresh = 0;
       return true;
     }
 #endif
     if (c == KEY_ENTER && _page == HomePage::SHUTDOWN) {
-      _shutdown_init = true;  // need to wait for button to be released
+      beginShutdown();
       return true;
     }
     return false;
@@ -551,7 +786,10 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _sensors = sensors;
   _auto_off = millis() + AUTO_OFF_MILLIS;
 
-#if defined(PIN_USER_BTN)
+#if defined(THINKNODE_M1) && defined(PIN_BUTTON2)
+  triangle_btn.begin();
+  circle_btn.begin();
+#elif defined(PIN_USER_BTN)
   user_btn.begin();
 #endif
 #if UI_HAS_JOYSTICK
@@ -590,6 +828,81 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 void UITask::showAlert(const char* text, int duration_millis) {
   strcpy(_alert, text);
   _alert_expiry = millis() + duration_millis;
+}
+
+void UITask::clearAlert() {
+  _alert[0] = 0;
+  _alert_expiry = 0;
+}
+
+bool UITask::dismissOrBack() {
+  if (isAlertVisible()) {
+    clearAlert();
+    return true;
+  }
+
+  if (curr == msg_preview) {
+    gotoHomeScreen();
+    return true;
+  }
+
+  if (curr == home) {
+    HomeScreen* home_screen = (HomeScreen*) home;
+    if (home_screen->isShutdownPending()) {
+      home_screen->cancelShutdown();
+      return true;
+    }
+
+    home_screen->gotoPreviousPage();
+    return true;
+  }
+
+  if (curr != NULL && curr != splash) {
+    gotoHomeScreen();
+    return true;
+  }
+
+  return false;
+}
+
+bool UITask::shouldHandleCircleLongPress() const {
+  if (isAlertVisible()) {
+    return true;
+  }
+
+  if (curr == msg_preview) {
+    return true;
+  }
+
+  if (curr == home) {
+    HomeScreen* home_screen = (HomeScreen*) home;
+    return home_screen->isShutdownPending();
+  }
+
+  return false;
+}
+
+void UITask::renderHibernateSplash() {
+  if (_display == NULL) {
+    return;
+  }
+
+  if (!_display->isOn()) {
+    _display->turnOn();
+  }
+
+  _display->startFrame();
+  _display->setColor(DisplayDriver::BLUE);
+  _display->drawXbm((_display->width() - 128) / 2, 8, meshcore_logo, 128, 13);
+
+  _display->setColor(DisplayDriver::LIGHT);
+  _display->setTextSize(2);
+  _display->drawTextCentered(_display->width() / 2, 36, "Node asleep");
+
+  _display->setTextSize(1);
+  _display->drawTextCentered(_display->width() / 2, 70, "Turn knob or press");
+  _display->drawTextCentered(_display->width() / 2, 82, "button to wake");
+  _display->endFrame();
 }
 
 void UITask::notify(UIEventType t) {
@@ -695,14 +1008,21 @@ void UITask::shutdown(bool restart){
   if (restart) {
     _board->reboot();
   } else {
-    _display->turnOff();
+#ifdef THINKNODE_M1
+    renderHibernateSplash();
+#endif
+    if (_display != NULL) {
+      _display->turnOff();
+    }
     radio_driver.powerOff();
     _board->powerOff();
   }
 }
 
 bool UITask::isButtonPressed() const {
-#ifdef PIN_USER_BTN
+#if defined(THINKNODE_M1) && defined(PIN_BUTTON2)
+  return triangle_btn.isPressed() || circle_btn.isPressed();
+#elif defined(PIN_USER_BTN)
   return user_btn.isPressed();
 #else
   return false;
@@ -711,8 +1031,9 @@ bool UITask::isButtonPressed() const {
 
 void UITask::loop() {
   char c = 0;
+  int ev = BUTTON_EVENT_NONE;
 #if UI_HAS_JOYSTICK
-  int ev = user_btn.check();
+  ev = user_btn.check();
   if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = checkDisplayOn(KEY_ENTER);
   } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
@@ -736,8 +1057,26 @@ void UITask::loop() {
   } else if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
     c = handleTripleClick(KEY_SELECT);
   }
+#elif defined(THINKNODE_M1) && defined(PIN_BUTTON2)
+  int triangle_event = triangle_btn.check();
+  int circle_event = circle_btn.check();
+
+  if (circle_event == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_CANCEL);
+  } else if (circle_event == BUTTON_EVENT_LONG_PRESS) {
+    if (shouldHandleCircleLongPress()) {
+      c = checkDisplayOn(KEY_CANCEL);
+    }
+  } else if (triangle_event == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_NEXT);
+  } else if (triangle_event == BUTTON_EVENT_LONG_PRESS) {
+    c = checkDisplayOn(KEY_ENTER);
+    c = handleLongPress(c);
+  } else if (triangle_event == BUTTON_EVENT_TRIPLE_CLICK) {
+    c = handleTripleClick(KEY_SELECT);
+  }
 #elif defined(PIN_USER_BTN)
-  int ev = user_btn.check();
+  ev = user_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {
     c = checkDisplayOn(KEY_NEXT);
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
@@ -776,7 +1115,15 @@ void UITask::loop() {
 #endif
 
   if (c != 0 && curr) {
-    curr->handleInput(c);
+    bool handled = false;
+#if defined(THINKNODE_M1) && defined(PIN_BUTTON2)
+    if (c == KEY_CANCEL) {
+      handled = dismissOrBack();
+    }
+#endif
+    if (!handled) {
+      curr->handleInput(c);
+    }
     _auto_off = millis() + AUTO_OFF_MILLIS;   // extend auto-off timer
     _next_refresh = 100;  // trigger refresh
   }

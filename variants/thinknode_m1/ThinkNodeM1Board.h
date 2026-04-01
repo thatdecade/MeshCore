@@ -51,6 +51,15 @@ public:
     );
 #endif
 
+#ifdef PIN_BUTTON2
+    while (digitalRead(PIN_BUTTON2) == LOW);
+    nrf_gpio_cfg_sense_input(
+      digitalPinToInterrupt(g_ADigitalPinMap[PIN_BUTTON2]),
+      NRF_GPIO_PIN_PULLUP,
+      NRF_GPIO_PIN_SENSE_LOW
+    );
+#endif
+
 #ifdef NRF52_POWER_MANAGEMENT
     initiateShutdown(SHUTDOWN_REASON_USER);
 #else
