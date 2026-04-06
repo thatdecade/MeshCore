@@ -7,9 +7,13 @@
 
 #ifdef NRF52_POWER_MANAGEMENT
 const PowerMgtConfig power_config = {
-  .lpcomp_ain_channel = PWRMGT_LPCOMP_AIN,
-  .lpcomp_refsel = PWRMGT_LPCOMP_REFSEL,
-  .voltage_bootlock = PWRMGT_VOLTAGE_BOOTLOCK
+  .lpcomp_ain_channel     = PWRMGT_LPCOMP_AIN,
+  .lpcomp_refsel_liion    = PWRMGT_LPCOMP_REFSEL_LIION,
+  .lpcomp_refsel_lfp      = PWRMGT_LPCOMP_REFSEL_LFP,
+  .lpcomp_refsel_lto      = PWRMGT_LPCOMP_REFSEL_LTO,
+  .voltage_bootlock_liion = PWRMGT_VOLTAGE_BOOTLOCK_LIION,
+  .voltage_bootlock_lfp   = PWRMGT_VOLTAGE_BOOTLOCK_LFP,
+  .voltage_bootlock_lto   = PWRMGT_VOLTAGE_BOOTLOCK_LTO
 };
 
 void ThinkNodeM1Board::initiateShutdown(uint8_t reason) {
@@ -30,7 +34,7 @@ void ThinkNodeM1Board::initiateShutdown(uint8_t reason) {
   digitalWrite(PIN_GPS_RESET, LOW);
 
   if (enable_lpcomp) {
-    configureVoltageWake(power_config.lpcomp_ain_channel, power_config.lpcomp_refsel);
+    configureVoltageWake(power_config.lpcomp_ain_channel, getRefselForChemistry(battery_chem, &power_config));
   }
 
   enterSystemOff(reason);
@@ -50,11 +54,13 @@ void ThinkNodeM1Board::begin() {
   pinMode(BATTERY_PIN, INPUT);
 
   pinMode(SX126X_POWER_EN, OUTPUT);
-  digitalWrite(SX126X_POWER_EN, HIGH);
+  digitalWrite(SX126X_POWER_EN, LOW);
 
 #ifdef NRF52_POWER_MANAGEMENT
   checkBootVoltage(&power_config);
 #endif
+
+  digitalWrite(SX126X_POWER_EN, HIGH);
 
   delay(10); // give sx1262 some time to power up
 }

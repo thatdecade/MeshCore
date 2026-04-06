@@ -24,9 +24,14 @@
 #define BATTERY_PIN             (4)
 #define ADC_MULTIPLIER          (2.0F)
 
-#define PWRMGT_VOLTAGE_BOOTLOCK (3300)
-#define PWRMGT_LPCOMP_AIN       (2)
-#define PWRMGT_LPCOMP_REFSEL    (3)
+#define PWRMGT_VOLTAGE_BOOTLOCK_LIION  (3000)
+#define PWRMGT_VOLTAGE_BOOTLOCK_LFP    (2500)
+#define PWRMGT_VOLTAGE_BOOTLOCK_LTO    (1800)
+#define PWRMGT_LPCOMP_AIN              (2)
+
+#define PWRMGT_LPCOMP_REFSEL_LIION     (3)
+#define PWRMGT_LPCOMP_REFSEL_LFP       (0xFF)
+#define PWRMGT_LPCOMP_REFSEL_LTO       (0xFF)
 
 #define ADC_RESOLUTION          (14)
 #define BATTERY_SENSE_RES       (12)
