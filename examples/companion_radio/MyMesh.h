@@ -167,6 +167,15 @@ public:
 
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
+#if defined(THINKNODE_M1) && defined(PIN_GPS_SWITCH)
+    const uint8_t hardware_gps_enabled = digitalRead(PIN_GPS_SWITCH) ? 1 : 0;
+    if (_prefs.gps_enabled != hardware_gps_enabled) {
+      _prefs.gps_enabled = hardware_gps_enabled;
+      savePrefs();
+    } else {
+      _prefs.gps_enabled = hardware_gps_enabled;
+    }
+#endif
     sensors.setSettingValue("gps", _prefs.gps_enabled ? "1" : "0");
     if (_prefs.gps_interval > 0) {
       char interval_str[12];  // Max: 24 hours = 86400 seconds (5 digits + null)

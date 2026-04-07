@@ -38,6 +38,9 @@ class UITask : public AbstractUITask {
   int _msgcount;
   unsigned long ui_started_at, next_batt_chck;
   int next_backlight_btn_check = 0;
+#if defined(THINKNODE_M1) && defined(PIN_GPS_SWITCH)
+  bool _last_hw_gps_switch_state;
+#endif
 #ifdef PIN_STATUS_LED
   int led_state = 0;
   int next_led_change = 0;
@@ -72,6 +75,9 @@ public:
   UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : AbstractUITask(board, serial), _display(NULL), _sensors(NULL) {
     next_batt_chck = _next_refresh = 0;
     ui_started_at = 0;
+#if defined(THINKNODE_M1) && defined(PIN_GPS_SWITCH)
+    _last_hw_gps_switch_state = false;
+#endif
     curr = NULL;
   }
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);

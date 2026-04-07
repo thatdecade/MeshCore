@@ -28,7 +28,11 @@
 #define PWRMGT_VOLTAGE_BOOTLOCK_LFP    (2500)
 #define PWRMGT_VOLTAGE_BOOTLOCK_LTO    (1800)
 #define PWRMGT_LPCOMP_AIN              (2)
-
+/*
+ * ThinkNode M1 previously used REFSEL=3 with a single chemistry.
+ * Keep that for Li-ion as the validated starting point.
+ * Leave LFP and LTO as VBUS-only wake until they are calibrated on hardware.
+ */
 #define PWRMGT_LPCOMP_REFSEL_LIION     (3)
 #define PWRMGT_LPCOMP_REFSEL_LFP       (0xFF)
 #define PWRMGT_LPCOMP_REFSEL_LTO       (0xFF)

@@ -77,6 +77,12 @@ static uint8_t estimateBatterySocPercent(uint16_t batteryMilliVolts) {
   return 0;
 }
 
+#ifdef THINKNODE_M1
+static UITask::AlertMode coerceThinkNodeM1AlertMode(uint8_t stored_mode) {
+  return (stored_mode == 0) ? UITask::ALERT_MODE_LOUD : UITask::ALERT_MODE_SILENT;
+}
+#endif
+
 class SplashScreen : public UIScreen {
   UITask* _task;
   unsigned long dismiss_after;
@@ -362,17 +368,21 @@ public:
   void gotoPreviousPage() {
     _shutdown_init = false;
     setPage((_page + HomePage::Count - 1) % HomePage::Count);
+#ifndef THINKNODE_M1
     if (_page == HomePage::RECENT) {
       _task->showAlert("Recent adverts", 800);
     }
+#endif
   }
 
   void gotoNextPage() {
     _shutdown_init = false;
     setPage((_page + 1) % HomePage::Count);
+#ifndef THINKNODE_M1
     if (_page == HomePage::RECENT) {
       _task->showAlert("Recent adverts", 800);
     }
+#endif
   }
 
   void cancelShutdown() {
@@ -444,9 +454,12 @@ public:
       the_mesh.getRecentlyHeard(recent, UI_RECENT_LIST_SIZE);
       display.setColor(DisplayDriver::GREEN);
       int y = 20;
+      bool has_recent_adverts = false;
       for (int i = 0; i < UI_RECENT_LIST_SIZE; i++, y += 11) {
         auto a = &recent[i];
         if (a->name[0] == 0) continue;
+
+        has_recent_adverts = true;
         int secs = _rtc->getCurrentTime() - a->recv_timestamp;
         if (secs < 60) {
           sprintf(tmp, "%ds", secs);
@@ -465,6 +478,11 @@ public:
         display.setCursor(content_right - timestamp_width, y);
         display.print(tmp);
       }
+#ifdef THINKNODE_M1
+      if (!has_recent_adverts) {
+        display.drawTextCentered(display.width() / 2, 34, "No Recent Adverts");
+      }
+#endif
     } else if (_page == HomePage::RADIO) {
       display.setColor(DisplayDriver::YELLOW);
       display.setTextSize(1);
@@ -509,12 +527,12 @@ public:
       char buf[50];
       int y = 18;
       bool gps_state = _task->getGPSState();
-#ifdef PIN_GPS_SWITCH
-      bool hw_gps_state = digitalRead(PIN_GPS_SWITCH);
-      if (gps_state != hw_gps_state) {
-        strcpy(buf, gps_state ? "gps off(hw)" : "gps off(sw)");
-      } else {
+#if defined(THINKNODE_M1) && defined(PIN_GPS_SWITCH)
+      const bool hw_gps_state = digitalRead(PIN_GPS_SWITCH);
+      if (gps_state == hw_gps_state) {
         strcpy(buf, gps_state ? "gps on" : "gps off");
+      } else {
+        strcpy(buf, gps_state ? "gps on (override)" : "gps off (override)");
       }
 #else
       strcpy(buf, gps_state ? "gps on" : "gps off");
@@ -649,10 +667,12 @@ public:
       gotoNextPage();
       return true;
     }
+#ifndef THINKNODE_M1
     if (c == KEY_ENTER && _page == HomePage::FIRST) {
       beginShutdown();
       return true;
     }
+#endif
     if (c == KEY_ENTER && _page == HomePage::BLUETOOTH) {
       if (_task->isSerialEnabled()) {
         _task->disableSerial();
@@ -802,6 +822,10 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 #endif
 
   _node_prefs = node_prefs;
+
+#if defined(THINKNODE_M1) && defined(PIN_GPS_SWITCH)
+  _last_hw_gps_switch_state = digitalRead(PIN_GPS_SWITCH);
+#endif
 
   if (_display != NULL) {
     _display->turnOn();
@@ -1136,6 +1160,23 @@ void UITask::loop() {
 
   if (curr) curr->poll();
 
+#if defined(THINKNODE_M1) && defined(PIN_GPS_SWITCH)
+  {
+    const bool current_hw_gps_switch_state = digitalRead(PIN_GPS_SWITCH);
+    if (current_hw_gps_switch_state != _last_hw_gps_switch_state) {
+      _last_hw_gps_switch_state = current_hw_gps_switch_state;
+      if (_node_prefs != NULL) {
+        const uint8_t gps_enabled = current_hw_gps_switch_state ? 1 : 0;
+        if (_node_prefs->gps_enabled != gps_enabled) {
+          _node_prefs->gps_enabled = gps_enabled;
+          the_mesh.savePrefs();
+        }
+      }
+      _next_refresh = 0;
+    }
+  }
+#endif
+
   if (_display != NULL && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {
       _display->startFrame();
@@ -1227,6 +1268,11 @@ char UITask::handleTripleClick(char c) {
 }
 
 bool UITask::getGPSState() {
+#ifdef THINKNODE_M1
+  if (_node_prefs != NULL) {
+    return _node_prefs->gps_enabled != 0;
+  }
+#endif
   if (_sensors != NULL) {
     int num = _sensors->getNumSettings();
     for (int i = 0; i < num; i++) {
@@ -1234,7 +1280,7 @@ bool UITask::getGPSState() {
         return !strcmp(_sensors->getSettingValue(i), "1");
       }
     }
-  } 
+  }
   return false;
 }
 
@@ -1266,10 +1312,17 @@ UITask::AlertMode UITask::getAlertMode() const {
   if (_node_prefs == NULL) {
     return ALERT_MODE_LOUD;
   }
+#ifdef THINKNODE_M1
+  return coerceThinkNodeM1AlertMode(_node_prefs->alert_mode);
+#else
   return static_cast<AlertMode>(constrain(_node_prefs->alert_mode, 0, 2));
+#endif
 }
 
 const char* UITask::getAlertModeLabel() const {
+#ifdef THINKNODE_M1
+  return getAlertMode() == ALERT_MODE_LOUD ? "Mode: Loud" : "Mode: Silent";
+#else
   switch (getAlertMode()) {
     case ALERT_MODE_VIBRATE:
       return "Mode: Vibrate";
@@ -1279,6 +1332,7 @@ const char* UITask::getAlertModeLabel() const {
     default:
       return "Mode: Loud";
   }
+#endif
 }
 
 void UITask::applyAlertMode() {
@@ -1310,8 +1364,13 @@ void UITask::cycleAlertMode() {
     return;
   }
 
+#ifdef THINKNODE_M1
+  AlertMode next_mode = (getAlertMode() == ALERT_MODE_LOUD) ? ALERT_MODE_SILENT : ALERT_MODE_LOUD;
+  _node_prefs->alert_mode = (next_mode == ALERT_MODE_LOUD) ? 0 : 2;
+#else
   AlertMode next_mode = static_cast<AlertMode>((getAlertMode() + 1) % 3);
   _node_prefs->alert_mode = static_cast<uint8_t>(next_mode);
+#endif
   applyAlertMode();
   playAlertModeFeedback(next_mode);
   the_mesh.savePrefs();

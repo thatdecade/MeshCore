@@ -905,7 +905,11 @@ void MyMesh::begin(bool has_display) {
   _prefs.sf = constrain(_prefs.sf, 5, 12);
   _prefs.cr = constrain(_prefs.cr, 5, 8);
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
+#ifdef THINKNODE_M1
+  _prefs.alert_mode = (_prefs.alert_mode == 0) ? 0 : 2;  // M1 only supports loud or silent
+#else
   _prefs.alert_mode = constrain(_prefs.alert_mode, 0, 2);    // 0=loud, 1=vibrate, 2=silent
+#endif
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
 
