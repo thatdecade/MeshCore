@@ -20,7 +20,7 @@ class GxEPDDisplay : public DisplayDriver {
 
 #if defined(EINK_DISPLAY_MODEL)
   GxEPD2_BW<EINK_DISPLAY_MODEL, EINK_DISPLAY_MODEL::HEIGHT> display;
-  const float scale_x  = EINK_SCALE_X; 
+  const float scale_x  = EINK_SCALE_X;
   const float scale_y  = EINK_SCALE_Y;
   const float offset_x = EINK_X_OFFSET;
   const float offset_y = EINK_Y_OFFSET;
@@ -35,7 +35,7 @@ class GxEPDDisplay : public DisplayDriver {
   bool _isOn = false;
   uint16_t _curr_color;
   CRC32 display_crc;
-  int last_display_crc_value = 0;
+  uint32_t last_display_crc_value = UINT32_MAX;
 
 public:
 #if defined(EINK_DISPLAY_MODEL)

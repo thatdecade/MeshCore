@@ -23,11 +23,10 @@ bool GxEPDDisplay::begin() {
 #endif
   display.init(115200, true, 2, false);
   display.setRotation(DISPLAY_ROTATION);
-  setTextSize(1);  // Default to size 1
+  display.setFont(&FreeSans9pt7b);
   display.setPartialWindow(0, 0, display.width(), display.height());
+  last_display_crc_value = UINT32_MAX;
 
-  display.fillScreen(GxEPD_WHITE);
-  display.display(true);
   #if DISP_BACKLIGHT
   digitalWrite(DISP_BACKLIGHT, LOW);
   pinMode(DISP_BACKLIGHT, OUTPUT);
