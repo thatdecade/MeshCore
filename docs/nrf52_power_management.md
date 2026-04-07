@@ -2,104 +2,179 @@
 
 ## Overview
 
-The nRF52 power management module protects batteries from over-discharge, prevents brownout-related flash corruption, and enables automatic voltage-based recovery. When enabled and configured, it checks battery voltage at boot and enters protective shutdown (SYSTEMOFF) if voltage is too low, then automatically wakes when the battery recovers or external power is connected.
+The nRF52 power management module protects batteries from over-discharge, reduces the chance of brownout-related flash corruption, and supports automatic recovery after a low-voltage shutdown.
+
+When enabled and configured, the firmware:
+
+- reads battery voltage early in boot
+- skips the boot lockout check when external power is present
+- enters protective `SYSTEMOFF` if battery voltage is below the configured threshold
+- records the shutdown reason in `GPREGRET2`
+- wakes again when battery voltage recovers through LPCOMP or when external power is connected through VBUS, depending on board support
+
+## Accessing Power Management Commands
+
+### Normal CLI
+
+The `get pwrmgt.*` and `set pwrmgt.*` commands are part of the normal MeshCore CLI.
+
+These commands work only on firmware and interfaces that expose the text CLI.
+
+### Companion firmware note
+
+On companion firmware, the BLE UART and serial companion interfaces use the MeshCore companion protocol, not a plain text shell. A serial terminal at `115200` will usually **not** respond to commands like `get pwrmgt.bootmv` unless you are using a client that speaks the companion protocol.
+
+### CLI Rescue mode
+
+Companion firmware still supports **CLI Rescue** during early boot. This is a small recovery shell intended for rescue and filesystem maintenance.
+
+CLI Rescue is **not** the full CommonCLI, so `get pwrmgt.*` and `set pwrmgt.*` are not available there.
+
+Use CLI Rescue for commands like:
+
+- `ls /`
+- `ls UserData/`
+- `ls ExtraFS/`
+- `erase`
+- `rebuild`
+- `set pin 123456`
+
+If BLE is still connected while you are in CLI Rescue, you may see log spam such as:
+
+```
+BLE: onBleUartRX: recv queue full, dropping data
+```
+
+That means a BLE client is still sending data while the rescue shell is active. Disconnect the phone app or other BLE client before using rescue mode over serial.
 
 ## CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `get pwrmgt.support` | Returns "supported" or "unsupported" |
-| `get pwrmgt.source` | Returns current power source: "battery" or "external" |
+| `get pwrmgt.support` | Returns `supported` or `unsupported` |
+| `get pwrmgt.source` | Returns current power source: `battery` or `external` |
 | `get pwrmgt.bootreason` | Returns reset reason and shutdown reason strings |
 | `get pwrmgt.bootmv` | Returns battery voltage at boot in millivolts |
-| `get pwrmgt.batt` | Returns configured battery chemistry: liion, lfp, or lto |
-| `set pwrmgt.batt liion\|lfp\|lto` | Set battery chemistry (persisted, takes effect on next boot) |
-| `get pwrmgt.bootlock` | Returns boot protection state: "enabled" or "disabled" |
-| `set pwrmgt.bootlock on\|off` | Enable or disable boot protection (persisted, reboot required) |
-| `poweroff` / `shutdown` | Immediate power off. Does not configure voltage wake — recovery requires USB power or a hardware wake source (e.g. button press). |
+| `get pwrmgt.batt` | Returns configured battery chemistry: `liion`, `lfp`, or `lto` |
+| `set pwrmgt.batt liion\|lfp\|lto` | Sets battery chemistry, persisted and applied on next boot |
+| `get pwrmgt.bootlock` | Returns boot protection state: `enabled` or `disabled` |
+| `set pwrmgt.bootlock on\|off` | Enables or disables boot protection, persisted and applied after reboot |
+| `poweroff` / `shutdown` | Immediate power off. This does not configure voltage wake, so recovery requires VBUS or another board-specific wake source. |
 
 On boards without power management support, all commands except `get pwrmgt.support` return `ERROR: Power management not supported`.
 
 ## Configuration
 
-### Set battery chemistry
+### Battery chemistry
 
-The correct chemistry must be set so the firmware uses the right voltage thresholds. Default is Li-ion.
+Set the correct chemistry so the firmware uses the correct boot lockout threshold.
 
-| Chemistry | Boot lockout threshold |
-|-----------|----------------------|
-| Li-ion/LiPo (`liion`) | 3000 mV |
-| Lithium Iron Phosphate (`lfp`) | 2500 mV |
-| Lithium Titanate Oxide (`lto`) | 1800 mV |
+| Chemistry | CLI value | Boot lockout threshold |
+|-----------|-----------|------------------------|
+| Li-ion / LiPo | `liion` | 3000 mV |
+| Lithium Iron Phosphate | `lfp` | 2500 mV |
+| Lithium Titanate Oxide | `lto` | 1800 mV |
 
-### Enable boot protection
+### Boot protection
 
-Boot protection is disabled by default. Enable with `set pwrmgt.bootlock on`, then reboot.
+Boot protection is disabled by default in Stage 1 v2.1.
 
-Verify with `get pwrmgt.batt` and `get pwrmgt.bootlock`.
+Enable it with:
 
-## Supported Boards
+```
+set pwrmgt.bootlock on
+```
 
-| Board | Implemented | LPCOMP wake | VBUS wake |
-|-------|-------------|-------------|-----------|
-| Seeed Studio XIAO nRF52840 (`xiao_nrf52`) | Yes | Yes | Yes |
-| RAK4631 (`rak4631`) | Yes | Yes | Yes |
-| Heltec T114 (`heltec_t114`) | Yes | Yes | Yes |
-| SenseCAP Solar (`sensecap_solar`) | Yes | Yes | Yes |
-| Promicro nRF52840 | No | No | No |
-| RAK WisMesh Tag | No | No | No |
-| Heltec Mesh Solar | No | No | No |
-| LilyGo T-Echo / T-Echo Lite | No | No | No |
-| WIO Tracker L1 / L1 E-Ink | No | No | No |
-| WIO WM1110 | No | No | No |
-| Mesh Pocket | No | No | No |
-| Nano G2 Ultra | No | No | No |
-| ThinkNode M1/M3/M6 | No | No | No |
-| T1000-E | No | No | No |
-| Ikoka Nano/Stick/Handheld (nRF) | No | No | No |
-| Keepteen LT1 | No | No | No |
-| Minewsemi ME25LS01 | No | No | No |
+Then reboot and verify with:
+
+```
+get pwrmgt.batt
+get pwrmgt.bootlock
+get pwrmgt.bootmv
+get pwrmgt.bootreason
+```
+
+## Supported Boards in This Branch
+
+This table reflects the state of this fork branch, including the ThinkNode M1 port.
+
+| Board | Implemented | LPCOMP wake | VBUS wake | Notes |
+|-------|-------------|-------------|-----------|-------|
+| Seeed Studio XIAO nRF52840 (`xiao_nrf52`) | Yes | Yes | Yes | Per-chemistry LPCOMP thresholds |
+| RAK4631 (`rak4631`) | Yes | Yes | Yes | Per-chemistry LPCOMP thresholds |
+| Heltec T114 (`heltec_t114`) | Yes | Yes | Yes | Per-chemistry LPCOMP thresholds |
+| SenseCAP Solar (`sensecap_solar`) | Yes | Yes | Yes | Existing power management implementation |
+| ThinkNode M1 (`thinknode_m1`) | Yes | Partial | Yes | Li-ion LPCOMP wake is configured. LFP and LTO currently use VBUS-only wake until hardware calibration is completed. |
+| ThinkNode M3 (`thinknode_m3`) | No | No | No | Not ported in this branch |
+| ThinkNode M6 (`thinknode_m6`) | No | No | No | Not ported to the Stage 1 v2.1 per-chemistry model in this branch |
+| Promicro nRF52840 | No | No | No | Not implemented here |
+| RAK WisMesh Tag | No | No | No | Not implemented here |
+| Heltec Mesh Solar | No | No | No | Not implemented here |
+| LilyGo T-Echo / T-Echo Lite | No | No | No | Not implemented here |
+| WIO Tracker L1 / L1 E-Ink | No | No | No | Not implemented here |
+| WIO WM1110 | No | No | No | Not implemented here |
+| Mesh Pocket | No | No | No | Not implemented here |
+| Nano G2 Ultra | No | No | No | Not implemented here |
+| T1000-E | No | No | No | Not implemented here |
+| Ikoka Nano / Stick / Handheld (nRF) | No | No | No | Not implemented here |
+| Keepteen LT1 | No | No | No | Not implemented here |
+| Minewsemi ME25LS01 | No | No | No | Not implemented here |
 
 ## How It Works
 
-### Boot Voltage Protection
+### Boot voltage protection
 
-On every boot (when enabled), the firmware reads the battery voltage before starting mesh operations. If USB/external power is detected, the check is skipped. If the voltage is below the lockout threshold for the configured chemistry, the device configures LPCOMP and VBUS wake sources and enters SYSTEMOFF.
+On boot, the firmware:
 
-### Wake Sources
+1. captures reset and shutdown reason state before later init clears those registers
+2. reads stored power preferences early from `InternalFS` so boot lockout can use persisted settings
+3. reads battery voltage
+4. skips the lockout check if external power is present
+5. compares the voltage against the boot lockout threshold for the configured battery chemistry
+6. enters protective `SYSTEMOFF` if voltage is below threshold
 
-A device in protective shutdown can be woken by two sources:
+On ThinkNode M1, the boot voltage check is performed **before** enabling the SX1262 radio power rail. This avoids adding radio load before the boot protection decision is made.
 
-- **LPCOMP (Low Power Comparator)**: The nRF52's hardware comparator monitors battery voltage on an analog input pin during SYSTEMOFF. When voltage rises above the configured recovery threshold, the comparator triggers a wake event. The recovery threshold is set above the boot lockout threshold so the device does not immediately shut down again. LPCOMP draws negligible current (~1 uA) during SYSTEMOFF.
-- **VBUS (USB power detection)**: The nRF52's POWER peripheral detects USB voltage on the VBUS pin and triggers a wake event. This is configured alongside LPCOMP whenever the board routes VBUS to the nRF52 (standard on nRF52840 boards with native USB). Connecting any USB power source will wake the device immediately regardless of battery state.
+### Wake sources
 
-### Shutdown Reasons
+A device in protective shutdown can be woken by one or both of these sources, depending on the board:
 
-The firmware records why the device entered SYSTEMOFF. This value is stored in the GPREGRET2 register (persists across SYSTEMOFF) and can be queried after boot with `get pwrmgt.bootreason`.
+- **LPCOMP**: the nRF52 low power comparator monitors battery voltage during `SYSTEMOFF`. When battery voltage rises above the configured threshold, it wakes the system.
+- **VBUS**: USB or other external power on VBUS wakes the device through the POWER peripheral.
+
+If a board uses `0xFF` for a chemistry-specific LPCOMP REFSEL value, that chemistry uses **VBUS-only wake** for low-voltage recovery.
+
+### Shutdown reasons
+
+The firmware records why the device entered `SYSTEMOFF`. This survives through `SYSTEMOFF` and can be read after the next boot with `get pwrmgt.bootreason`.
 
 | Code | Name | Description |
 |------|------|-------------|
-| 0x00 | NONE | Normal boot / no previous shutdown |
-| 0x4C | LOW_VOLTAGE | Runtime low voltage threshold reached |
-| 0x55 | USER | Manual shutdown via `poweroff` or `shutdown` CLI command |
-| 0x42 | BOOT_PROTECT | Boot voltage protection triggered |
+| `0x00` | `NONE` | Normal boot or no previous shutdown |
+| `0x4C` | `LOW_VOLTAGE` | Runtime low voltage threshold reached |
+| `0x55` | `USER` | Manual shutdown via `poweroff` or `shutdown` |
+| `0x42` | `BOOT_PROTECT` | Boot voltage protection triggered |
 
-### Boot Reason Tracking
+### Boot reason tracking
 
-The firmware captures the nRF52 RESETREAS and GPREGRET2 registers at early boot before system initialisation clears them. This allows `get pwrmgt.bootreason` to report both the wake source (e.g. LPCOMP, VBUS, reset pin, watchdog) and the prior shutdown reason.
+The firmware captures `RESETREAS` and `GPREGRET2` very early in boot before later system initialisation clears them. This allows `get pwrmgt.bootreason` to report both the wake source and the previous shutdown reason.
 
 ## LPCOMP Wake Voltage Reference
 
-The LPCOMP wake voltage depends on the board's voltage divider ratio and the REFSEL value programmed before entering SYSTEMOFF.
+The LPCOMP wake voltage depends on the board's voltage divider ratio and the configured `REFSEL` value.
 
-**Wake voltage formula**:
+**Wake voltage formula**
+
 ```
 VBAT_wake = REFSEL_fraction x VDD_sys x ADC_MULTIPLIER
 ```
 
-Where VDD_sys is approximately 3.0-3.3V (regulator output during SYSTEMOFF) and ADC_MULTIPLIER is the board's voltage divider scale factor.
+Where:
 
-**REFSEL fraction reference**:
+- `VDD_sys` is typically about 3.0 to 3.3 V during `SYSTEMOFF`
+- `ADC_MULTIPLIER` is the board's voltage divider scale factor
+
+**REFSEL fractions**
 
 | REFSEL | Fraction | REFSEL | Fraction |
 |--------|----------|--------|----------|
@@ -112,19 +187,32 @@ Where VDD_sys is approximately 3.0-3.3V (regulator output during SYSTEMOFF) and 
 | 6 | 7/8 | 14 | 13/16 |
 | 7 | ARef | 15 | 15/16 |
 
-**Per-board per-chemistry wake voltages**:
+**Per-board wake configuration examples**
 
-| Board | ADC_MUL | Li-ion REFSEL | Wake range | LFP REFSEL | Wake range | LTO REFSEL | Wake range |
-|-------|---------|---------------|------------|------------|------------|------------|------------|
-| RAK4631 | ~1.73 | 4 (5/8) | 3.24-3.57V | 4 (5/8) | 3.24-3.57V | 11 (7/16) | 2.27-2.50V |
-| T114 | 4.90 | 1 (2/8) | 3.68-4.04V | 9 (3/16) | 2.76-3.03V | 0 (1/8) | 1.84-2.02V* |
-| XIAO | 3.0 | 2 (3/8) | 3.38-3.71V | 10 (5/16) | 2.81-3.09V | 1 (2/8) | 2.25-2.47V |
+| Board | ADC_MUL | Li-ion REFSEL | Li-ion wake range | LFP REFSEL | LFP wake range | LTO REFSEL | LTO wake range |
+|-------|---------|---------------|-------------------|------------|----------------|------------|----------------|
+| RAK4631 | about 1.73 | 4 (5/8) | about 3.24 to 3.57 V | 4 (5/8) | about 3.24 to 3.57 V | 11 (7/16) | about 2.27 to 2.50 V |
+| Heltec T114 | 4.90 | 1 (2/8) | about 3.68 to 4.04 V | 9 (3/16) | about 2.76 to 3.03 V | 0 (1/8) | about 1.84 to 2.02 V |
+| XIAO nRF52 | 3.0 | 2 (3/8) | about 3.38 to 3.71 V | 10 (5/16) | about 2.81 to 3.09 V | 1 (2/8) | about 2.25 to 2.47 V |
+| ThinkNode M1 | 2.0 | 3 (4/8) | about 3.00 to 3.30 V | `0xFF` | VBUS-only wake | `0xFF` | VBUS-only wake |
 
-*T114 LTO uses a narrower margin (~50 mV plus LPCOMP 50 mV hysteresis) and assumes VDD_sys >= 3.0V in SYSTEMOFF.
+For ThinkNode M1, Li-ion is the validated starting path. LFP and LTO boot thresholds are defined, but automatic battery-voltage wake for those chemistries is intentionally disabled until board-specific calibration is completed.
+
+## Testing Notes
+
+For companion firmware builds, power-management validation is often easier to do by observed behavior rather than text CLI access.
+
+Recommended checks:
+
+- repeated cold boot on USB
+- repeated cold boot on battery only
+- confirm no boot loops on a healthy battery
+- confirm clean recovery when VBUS is attached after a low-voltage state
+- confirm radio still initialises after boot on ThinkNode M1, since radio power is enabled after the boot voltage check
 
 ## Debug Output
 
-When the firmware is built with `MESH_DEBUG=1`, the power management module logs at boot:
+When built with `MESH_DEBUG=1`, the power management module logs at boot with lines like:
 
 ```
 PWRMGT: Reset = Wake from LPCOMP (0x20000); Shutdown = Low Voltage (0x4C)
@@ -132,6 +220,12 @@ PWRMGT: Boot protection enabled (Li-ion), threshold=3000 mV
 PWRMGT: Boot voltage=3450 mV
 PWRMGT: LPCOMP wake configured (AIN7, ref=3/8 VDD)
 PWRMGT: VBUS wake configured
+```
+
+If boot protection is disabled, you should instead see:
+
+```
+PWRMGT: Boot protection disabled
 ```
 
 ## References
